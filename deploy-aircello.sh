@@ -219,7 +219,9 @@ do_deploy_build() {
       --exclude='.aircello-deploy.conf' \
       "${source_dir}/" "${build_dir}/"
   else
-    cp -r "$detected_build" "$build_dir"
+    # 用 rsync 复制构建产物内容（而非目录本身），避免产生 build/dist/ 嵌套
+    mkdir -p "$build_dir"
+    rsync -a "${detected_build}/" "${build_dir}/"
   fi
   chown -R www-data:www-data "$build_dir"
   chmod -R 755 "$build_dir"
