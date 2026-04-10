@@ -136,6 +136,8 @@ print_quick_status() {
 
 # ============================================================
 # 公共：构建项目
+# 注意：此函数通过 detected_build=$(do_build ...) 调用
+#       stdout 只能输出最终路径，所有日志/命令输出必须走 stderr
 # ============================================================
 do_build() {
   local source_dir="$1"
@@ -144,16 +146,16 @@ do_build() {
   if [[ -f "package.json" ]]; then
     info "安装 npm 依赖..."
     if [[ -f "package-lock.json" ]]; then
-      npm ci --prefer-offline --no-audit --no-fund 2>&1 | tail -1
+      npm ci --prefer-offline --no-audit --no-fund 2>&1 | tail -1 >&2
     else
       warn "未找到 package-lock.json，使用 npm install"
-      npm install --no-audit --no-fund 2>&1 | tail -1
+      npm install --no-audit --no-fund 2>&1 | tail -1 >&2
     fi
     ok "依赖安装完成"
 
     if node -e "const p=require('./package.json'); process.exit(p.scripts?.build ? 0 : 1)" 2>/dev/null; then
       info "构建项目..."
-      npm run build 2>&1 | tail -3
+      npm run build 2>&1 | tail -3 >&2
       ok "构建完成"
     else
       warn "package.json 未定义 build 脚本，跳过构建"
@@ -176,6 +178,7 @@ do_build() {
     err "未找到构建输出（尝试了 dist/ build/ out/ public/ 及根目录），请检查项目结构"
   fi
 
+  # 唯一写 stdout 的地方——调用方通过 $() 捕获路径
   echo "$detected"
 }
 
