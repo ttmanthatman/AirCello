@@ -111,8 +111,8 @@ CONF
 info "正在更新系统包索引..."
 apt-get update -qq
 
-info "正在安装基础依赖（git, curl, build-essential）..."
-apt-get install -y -qq git curl build-essential > /dev/null 2>&1
+info "正在安装基础依赖（git, curl, rsync, build-essential）..."
+apt-get install -y -qq git curl rsync build-essential > /dev/null 2>&1
 ok "基础依赖已安装"
 
 # ============================================================
@@ -183,28 +183,54 @@ cd "$SOURCE_DIR"
 ok "代码已就绪：$(git log --oneline -1)"
 
 # --- 构建 ---
-info "正在安装 npm 依赖..."
-npm ci --prefer-offline --no-audit --no-fund 2>&1 | tail -1
+if [[ -f "${SOURCE_DIR}/package.json" ]]; then
+  # 有 package.json → Node.js 项目，走构建流程
+  info "正在安装 npm 依赖..."
+  if [[ -f "${SOURCE_DIR}/package-lock.json" ]]; then
+    npm ci --prefer-offline --no-audit --no-fund 2>&1 | tail -1
+  else
+    warn "未找到 package-lock.json，使用 npm install（建议将 lock 文件提交到仓库）"
+    npm install --no-audit --no-fund 2>&1 | tail -1
+  fi
+  ok "依赖安装完成"
 
-info "正在构建项目..."
-npm run build 2>&1 | tail -3
+  # 检查是否有 build 脚本
+  if node -e "const p=require('./package.json'); process.exit(p.scripts && p.scripts.build ? 0 : 1)" 2>/dev/null; then
+    info "正在构建项目..."
+    npm run build 2>&1 | tail -3
+  else
+    warn "package.json 中未定义 build 脚本，跳过构建步骤"
+  fi
+fi
 
 # 自动检测构建输出目录（兼容 vite/cra/next）
 DETECTED_BUILD=""
-for candidate in dist build out .next/static; do
+for candidate in dist build out .next/static public; do
   if [[ -d "${SOURCE_DIR}/${candidate}" ]]; then
     DETECTED_BUILD="${SOURCE_DIR}/${candidate}"
     break
   fi
 done
 
+# 如果没有构建输出目录，检查是否是纯静态项目（根目录有 index.html）
+if [[ -z "$DETECTED_BUILD" && -f "${SOURCE_DIR}/index.html" ]]; then
+  DETECTED_BUILD="${SOURCE_DIR}"
+  info "检测到纯静态项目（根目录 index.html）"
+fi
+
 if [[ -z "$DETECTED_BUILD" ]]; then
-  err "未找到构建输出目录（尝试了 dist/ build/ out/），请检查项目配置"
+  err "未找到可部署的文件（尝试了 dist/ build/ out/ public/ 和根目录 index.html），请检查项目结构"
 fi
 
 # 复制构建产物到独立的 build 目录
 rm -rf "$BUILD_DIR"
-cp -r "$DETECTED_BUILD" "$BUILD_DIR"
+if [[ "$DETECTED_BUILD" == "$SOURCE_DIR" ]]; then
+  # 纯静态项目：只复制前端文件，排除 .git / node_modules 等
+  mkdir -p "$BUILD_DIR"
+  rsync -a --exclude='.git' --exclude='node_modules' --exclude='.aircello-deploy.conf' "$SOURCE_DIR/" "$BUILD_DIR/"
+else
+  cp -r "$DETECTED_BUILD" "$BUILD_DIR"
+fi
 ok "构建完成：${BUILD_DIR}"
 
 # 设置文件权限
@@ -386,20 +412,32 @@ echo -e "  $(git log --oneline -1)"
 echo ""
 
 # 构建
-info "正在安装依赖..."
-npm ci --prefer-offline --no-audit --no-fund 2>&1 | tail -1
+if [[ -f "${SOURCE_DIR}/package.json" ]]; then
+  info "正在安装依赖..."
+  if [[ -f "${SOURCE_DIR}/package-lock.json" ]]; then
+    npm ci --prefer-offline --no-audit --no-fund 2>&1 | tail -1
+  else
+    npm install --no-audit --no-fund 2>&1 | tail -1
+  fi
 
-info "正在构建..."
-npm run build 2>&1 | tail -3
+  if node -e "const p=require('./package.json'); process.exit(p.scripts && p.scripts.build ? 0 : 1)" 2>/dev/null; then
+    info "正在构建..."
+    npm run build 2>&1 | tail -3
+  fi
+fi
 
 # 检测构建目录
 DETECTED_BUILD=""
-for candidate in dist build out .next/static; do
+for candidate in dist build out .next/static public; do
   if [[ -d "${SOURCE_DIR}/${candidate}" ]]; then
     DETECTED_BUILD="${SOURCE_DIR}/${candidate}"
     break
   fi
 done
+
+if [[ -z "$DETECTED_BUILD" && -f "${SOURCE_DIR}/index.html" ]]; then
+  DETECTED_BUILD="${SOURCE_DIR}"
+fi
 
 if [[ -z "$DETECTED_BUILD" ]]; then
   err "未找到构建输出目录"
@@ -413,7 +451,12 @@ if [[ -d "$BUILD_DIR" ]]; then
 fi
 
 # 部署新版本
-cp -r "$DETECTED_BUILD" "$BUILD_DIR"
+if [[ "$DETECTED_BUILD" == "$SOURCE_DIR" ]]; then
+  mkdir -p "$BUILD_DIR"
+  rsync -a --exclude='.git' --exclude='node_modules' --exclude='.aircello-deploy.conf' "$SOURCE_DIR/" "$BUILD_DIR/"
+else
+  cp -r "$DETECTED_BUILD" "$BUILD_DIR"
+fi
 chown -R www-data:www-data "$BUILD_DIR"
 chmod -R 755 "$BUILD_DIR"
 
