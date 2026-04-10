@@ -20,12 +20,12 @@ BOLD='\033[1m'
 DIM='\033[2m'
 NC='\033[0m'
 
-info()  { echo -e "${CYAN}[INFO]${NC}  $*"; }
-ok()    { echo -e "${GREEN}[ OK ]${NC}  $*"; }
-warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
-err()   { echo -e "${RED}[ERR ]${NC}  $*"; exit 1; }
-step()  { echo -e "\n${BOLD}${CYAN}▶ $*${NC}"; }
-sep()   { echo -e "${DIM}────────────────────────────────────────${NC}"; }
+info()  { echo -e "${CYAN}[INFO]${NC}  $*" >&2; }
+ok()    { echo -e "${GREEN}[ OK ]${NC}  $*" >&2; }
+warn()  { echo -e "${YELLOW}[WARN]${NC}  $*" >&2; }
+err()   { echo -e "${RED}[ERR ]${NC}  $*" >&2; exit 1; }
+step()  { echo -e "\n${BOLD}${CYAN}▶ $*${NC}" >&2; }
+sep()   { echo -e "${DIM}────────────────────────────────────────${NC}" >&2; }
 
 # ============================================================
 # Root 权限检查
